@@ -1,5 +1,4 @@
 import streamlit as st
-import time
 from PIL import Image
 from google import genai
 
@@ -34,9 +33,9 @@ with st.sidebar:
     
     st.markdown("---")
     st.markdown("### ⚙️ Engine Specs")
-    st.caption("• **Engine:** Gemini Multi-Model Fallback\n• **Target Region:** Pakistan")
+    st.caption("• **Engine:** Google Gemini Multi-Modal\n• **Target Region:** Pakistan")
 
-# Apply Right-to-Left (RTL) styling for standard Urdu script
+# Right-to-Left styling for Urdu Script
 if selected_language == "Urdu (اردو)":
     st.markdown("""
         <style>
@@ -67,7 +66,7 @@ with col_m3:
 
 st.write("")
 
-# 4. Diagnostic Workspace
+# 4. Workspace
 col1, col2 = st.columns([1, 1], gap="large")
 
 with col1:
@@ -93,68 +92,61 @@ with col2:
         if not gemini_key:
             st.error("Please enter your Gemini API Key in the sidebar.")
         else:
-            img_data = Image.open(uploaded_file)
-            
-            # Language instructions
-            if selected_language == "English":
-                lang_instruction = "Respond entirely in clear, simple English."
-            elif selected_language == "Roman Urdu":
-                lang_instruction = "Respond entirely in clear ROMAN URDU (Urdu written using English script, e.g., 'Is patay par peele dhabbe hain')."
-            else:
-                lang_instruction = "Respond entirely in standard URDU SCRIPT (مکمل اردو زبان میں لکھیں)."
+            try:
+                img_data = Image.open(uploaded_file)
+                
+                # Format prompt instructions based on user selection
+                if selected_language == "English":
+                    lang_instruction = "Respond entirely in clear, simple English."
+                elif selected_language == "Roman Urdu":
+                    lang_instruction = "Respond entirely in clear ROMAN URDU (Urdu written in Latin script, e.g., 'Is patay par peele dhabbe hain')."
+                else:
+                    lang_instruction = "Respond entirely in standard URDU SCRIPT (مکمل اردو زبان میں لکھیں)."
 
-            vision_prompt = f"""
-            You are AgriSense, an expert plant pathologist specialized in Pakistani agriculture.
-            Examine the provided leaf image carefully and produce a clear, structured report under 220 words.
-            
-            STRICT LANGUAGE CONSTRAINT: {lang_instruction}
+                vision_prompt = f"""
+                You are AgriSense, an expert plant pathologist specialized in Pakistani agriculture.
+                Examine the provided leaf image carefully and produce a clear, structured report under 220 words.
+                
+                STRICT LANGUAGE CONSTRAINT: {lang_instruction}
 
-            Use the following headings in your output:
-            ### 🍃 1. CROP & LEAF IDENTIFICATION
-            - Identify exact plant/crop name (e.g., Mango, Tomato, Cotton, Wheat) and leaf condition.
+                Use the following headings in your output:
+                ### 🍃 1. CROP & LEAF IDENTIFICATION
+                - Identify exact plant/crop name (e.g., Mango, Tomato, Cotton, Wheat) and leaf condition.
 
-            ### 🔍 2. DIAGNOSIS & CONFIDENCE
-            - State exact Disease Name (or Healthy) & Confidence Level % (e.g. 95%).
+                ### 🔍 2. DIAGNOSIS & CONFIDENCE
+                - State exact Disease Name (or Healthy) & Confidence Level % (e.g. 95%).
 
-            ### 👁️ 3. VISUAL SYMPTOMS
-            - List visible symptoms on the leaf (color changes, spots, lesions, edges).
+                ### 👁️ 3. VISUAL SYMPTOMS
+                - List visible symptoms on the leaf (color changes, spots, lesions, edges).
 
-            ### 💊 4. RECOMMENDED TREATMENTS
-            - Organic / Home remedy.
-            - Chemical Spray brand available in Pakistan (e.g. Bayer, Syngenta products).
-            """
+                ### 💊 4. RECOMMENDED TREATMENTS
+                - Organic / Home remedy.
+                - Chemical Spray brand available in Pakistan (e.g. Bayer, Syngenta products).
+                """
 
-            # List of fallback models to try if Google servers are busy
-            candidate_models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"]
-            ai_client = genai.Client(api_key=gemini_key)
-            report_content = None
-            
-            with st.spinner("Analyzing leaf patterns and generating localized report..."):
-                for model_name in candidate_models:
-                    # Retry logic per model (up to 2 attempts)
-                    for attempt in range(2):
-                        try:
-                            vision_response = ai_client.models.generate_content(
-                                model=model_name,
-                                contents=[img_data, vision_prompt]
-                            )
-                            report_content = vision_response.text
-                            break
-                        except Exception as e:
-                            if "503" in str(e) or "UNAVAILABLE" in str(e):
-                                time.sleep(1.5)  # Pause briefly before retry
-                                continue
-                            else:
-                                raise e
-                    
-                    if report_content:
-                        break
+                ai_client = genai.Client(api_key=gemini_key)
+                
+                with st.spinner("Analyzing leaf patterns using Gemini AI..."):
+                    try:
+                        # Primary endpoint
+                        response = ai_client.models.generate_content(
+                            model="gemini-2.5-flash",
+                            contents=[img_data, vision_prompt]
+                        )
+                    except Exception:
+                        # Fallback endpoint if primary is busy or rate-limited
+                        response = ai_client.models.generate_content(
+                            model="gemini-1.5-flash",
+                            contents=[img_data, vision_prompt]
+                        )
 
-            if report_content:
+                report_content = response.text
+
                 st.success("Analysis Complete!")
                 if selected_language == "Urdu (اردو)":
                     st.markdown(f'<div class="report-box">{report_content}</div>', unsafe_allow_html=True)
                 else:
                     st.markdown(report_content)
-            else:
-                st.error("Google AI services are temporarily busy across all model instances. Please wait 10 seconds and try again.")
+
+            except Exception as e:
+                st.error(f"Error processing leaf image: {str(e)}")
