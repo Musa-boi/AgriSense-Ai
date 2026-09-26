@@ -1,4 +1,5 @@
 import streamlit as st
+import time
 from PIL import Image
 from google import genai
 
@@ -10,7 +11,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 2. Sidebar Setup (Single API Key Input)
+# 2. Sidebar Setup
 with st.sidebar:
     st.image("https://img.icons8.com/color/96/wheat.png", width=70)
     st.title("AgriSense Panel")
@@ -27,13 +28,13 @@ with st.sidebar:
     gemini_key = st.text_input(
         "Gemini API Key:", 
         type="password", 
-        help="Get your free key from aistudio.google.com", 
+        help="Get your key from aistudio.google.com", 
         key="gemini_api_key"
     )
     
     st.markdown("---")
     st.markdown("### ⚙️ Engine Specs")
-    st.caption("• **Engine:** `gemini-3.8-flash`\n• **Provider:** Google AI Studio\n• **Target Region:** Pakistan")
+    st.caption("• **Engine:** Gemini Multi-Model Fallback\n• **Target Region:** Pakistan")
 
 # Apply Right-to-Left (RTL) styling for standard Urdu script
 if selected_language == "Urdu (اردو)":
@@ -52,7 +53,7 @@ if selected_language == "Urdu (اردو)":
         </style>
     """, unsafe_allow_html=True)
 
-# 3. Main Header & Summary
+# 3. Main Header
 st.markdown("<h1 style='color: #10b981;'>🌾 AgriSense: AI Crop & Leaf Advisor</h1>", unsafe_allow_html=True)
 st.caption("Identify plant species, diagnose diseases, and get localized treatment options.")
 
@@ -92,53 +93,68 @@ with col2:
         if not gemini_key:
             st.error("Please enter your Gemini API Key in the sidebar.")
         else:
-            try:
-                with st.spinner("Analyzing leaf patterns and generating localized report..."):
-                    img_data = Image.open(uploaded_file)
+            img_data = Image.open(uploaded_file)
+            
+            # Language instructions
+            if selected_language == "English":
+                lang_instruction = "Respond entirely in clear, simple English."
+            elif selected_language == "Roman Urdu":
+                lang_instruction = "Respond entirely in clear ROMAN URDU (Urdu written using English script, e.g., 'Is patay par peele dhabbe hain')."
+            else:
+                lang_instruction = "Respond entirely in standard URDU SCRIPT (مکمل اردو زبان میں لکھیں)."
+
+            vision_prompt = f"""
+            You are AgriSense, an expert plant pathologist specialized in Pakistani agriculture.
+            Examine the provided leaf image carefully and produce a clear, structured report under 220 words.
+            
+            STRICT LANGUAGE CONSTRAINT: {lang_instruction}
+
+            Use the following headings in your output:
+            ### 🍃 1. CROP & LEAF IDENTIFICATION
+            - Identify exact plant/crop name (e.g., Mango, Tomato, Cotton, Wheat) and leaf condition.
+
+            ### 🔍 2. DIAGNOSIS & CONFIDENCE
+            - State exact Disease Name (or Healthy) & Confidence Level % (e.g. 95%).
+
+            ### 👁️ 3. VISUAL SYMPTOMS
+            - List visible symptoms on the leaf (color changes, spots, lesions, edges).
+
+            ### 💊 4. RECOMMENDED TREATMENTS
+            - Organic / Home remedy.
+            - Chemical Spray brand available in Pakistan (e.g. Bayer, Syngenta products).
+            """
+
+            # List of fallback models to try if Google servers are busy
+            candidate_models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"]
+            ai_client = genai.Client(api_key=gemini_key)
+            report_content = None
+            
+            with st.spinner("Analyzing leaf patterns and generating localized report..."):
+                for model_name in candidate_models:
+                    # Retry logic per model (up to 2 attempts)
+                    for attempt in range(2):
+                        try:
+                            vision_response = ai_client.models.generate_content(
+                                model=model_name,
+                                contents=[img_data, vision_prompt]
+                            )
+                            report_content = vision_response.text
+                            break
+                        except Exception as e:
+                            if "503" in str(e) or "UNAVAILABLE" in str(e):
+                                time.sleep(1.5)  # Pause briefly before retry
+                                continue
+                            else:
+                                raise e
                     
-                    # Language instructions
-                    if selected_language == "English":
-                        lang_instruction = "Respond entirely in clear, simple English."
-                    elif selected_language == "Roman Urdu":
-                        lang_instruction = "Respond entirely in clear ROMAN URDU (Urdu written using English script, e.g., 'Is patay par peele dhabbe hain')."
-                    else:
-                        lang_instruction = "Respond entirely in standard URDU SCRIPT (مکمل اردو زبان میں لکھیں)."
+                    if report_content:
+                        break
 
-                    vision_prompt = f"""
-                    You are AgriSense, an expert plant pathologist specialized in Pakistani agriculture.
-                    Examine the provided leaf image carefully and produce a clear, structured report under 220 words.
-                    
-                    STRICT LANGUAGE CONSTRAINT: {lang_instruction}
-
-                    Use the following headings in your output:
-                    ### 🍃 1. CROP & LEAF IDENTIFICATION
-                    - Identify exact plant/crop name (e.g., Mango, Tomato, Cotton, Wheat) and leaf condition.
-
-                    ### 🔍 2. DIAGNOSIS & CONFIDENCE
-                    - State exact Disease Name (or Healthy) & Confidence Level % (e.g. 95%).
-
-                    ### 👁️ 3. VISUAL SYMPTOMS
-                    - List visible symptoms on the leaf (color changes, spots, lesions, edges).
-
-                    ### 💊 4. RECOMMENDED TREATMENTS
-                    - Organic / Home remedy.
-                    - Chemical Spray brand available in Pakistan (e.g. Bayer, Syngenta products).
-                    """
-
-                    ai_client = genai.Client(api_key=gemini_key)
-                    vision_response = ai_client.models.generate_content(
-                        model="gemini-3.8-flash",
-                        contents=[img_data, vision_prompt]
-                    )
-                    
-                    report_content = vision_response.text
-
+            if report_content:
                 st.success("Analysis Complete!")
-                
                 if selected_language == "Urdu (اردو)":
                     st.markdown(f'<div class="report-box">{report_content}</div>', unsafe_allow_html=True)
                 else:
                     st.markdown(report_content)
-                    
-            except Exception as e:
-                st.error(f"Error processing diagnosis: {str(e)}")
+            else:
+                st.error("Google AI services are temporarily busy across all model instances. Please wait 10 seconds and try again.")
