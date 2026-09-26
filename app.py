@@ -33,7 +33,7 @@ with st.sidebar:
     
     st.markdown("---")
     st.markdown("### ⚙️ Engine Specs")
-    st.caption("• **Engine:** Google Gemini Multi-Modal\n• **Target Region:** Pakistan")
+    st.caption("• **Engine:** Gemini 2.5 & 2.0 Flash\n• **Target Region:** Pakistan")
 
 # Right-to-Left styling for Urdu Script
 if selected_language == "Urdu (اردو)":
@@ -126,17 +126,17 @@ with col2:
 
                 ai_client = genai.Client(api_key=gemini_key)
                 
-                with st.spinner("Analyzing leaf patterns using Gemini AI..."):
+                with st.spinner("Analyzing leaf patterns using Gemini Vision..."):
                     try:
-                        # Primary endpoint
+                        # Primary modern endpoint
                         response = ai_client.models.generate_content(
                             model="gemini-2.5-flash",
                             contents=[img_data, vision_prompt]
                         )
-                    except Exception:
-                        # Fallback endpoint if primary is busy or rate-limited
+                    except Exception as primary_err:
+                        # Fallback modern endpoint
                         response = ai_client.models.generate_content(
-                            model="gemini-1.5-flash",
+                            model="gemini-2.0-flash",
                             contents=[img_data, vision_prompt]
                         )
 
